@@ -1,0 +1,345 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ═══════════════════════════════════════════════════════════
+// Multi-tenancy
+// ═══════════════════════════════════════════════════════════
+
+model Company {
+  id                 String             @id @default(cuid())
+  name               String
+  slug               String             @unique
+  clerkOrgId         String             @unique
+  phone              String?            // Twilio provisioned number
+  twilioSid          String?            // Twilio phone number SID
+  retellAgentId      String?            // Retell AI agent for this company
+  googleCalId        String?            // Default calendar ID
+  googleTokens       Json?              // Encrypted OAuth tokens {access_token, refresh_token, expiry}
+  stripeCustomerId   String?            @unique
+  stripePriceId      String?            // Active subscription price ID
+  subscriptionStatus SubscriptionStatus @default(TRIALING)
+  trialEndsAt        DateTime?
+  timezone           String             @default("America/New_York")
+  defaultLanguage    String             @default("en") // ISO 639-1: "en", "es"
+  settings           Json               @default("{}") // Voice greeting, prompts, preferences
+  onboardingComplete Boolean            @default(false)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  users          User[]
+  calls          CallLog[]
+  jobs           Job[]
+  pricingMatrix  PricingMatrix?
+  teamMembers    TeamMember[]
+  smsTemplates   SmsTemplate[]
+  knowledgeBase  KnowledgeEntry[]
+  auditLogs      AuditLog[]
+
+  @@index([clerkOrgId])
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  PAUSED
+}
+
+model User {
+  id          String   @id @default(cuid())
+  clerkUserId String   @unique
+  email       String
+  name        String?
+  role        UserRole @default(MEMBER)
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  auditLogs AuditLog[]
+
+  @@index([companyId])
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+  TECH // Field technician — receives dispatch notifications
+}
+
+// ═══════════════════════════════════════════════════════════
+// Call handling
+// ═══════════════════════════════════════════════════════════
+
+model CallLog {
+  id             String      @id @default(cuid())
+  companyId      String
+  company        Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  retellCallId   String?     @unique
+  twilioCallSid  String?     @unique
+  channel        Channel     @default(PHONE)
+  direction      Direction   @default(INBOUND)
+  callerPhone    String
+  callerName     String?
+  callerEmail    String?
+  status         CallStatus  @default(IN_PROGRESS)
+  duration       Int?        // seconds
+  recordingUrl   String?
+  transcript     Json?       // Array<{role: "agent"|"caller", content: string, timestamp: number}>
+  summary        String?     // LLM-generated call summary
+  language       String      @default("en") // Detected language of the caller
+
+  // ── Triage data ──
+  emergencyType  EmergencyType?
+  damageCategory Int?        // IICRC Category 1–4
+  damageClass    Int?        // IICRC Class 1–4 (extent of evaporation needed)
+  squareFootage  Int?
+  isEmergency    Boolean     @default(false)
+  safetyIssues   String[]    // e.g. ["standing_water", "electrical_risk", "gas_leak"]
+  propertyType   PropertyType @default(RESIDENTIAL)
+  insuranceInfo  Json?       // {hasInsurance: bool, carrier?: string, claimNumber?: string, policyNumber?: string}
+  damageOnset    DateTime?   // When caller first noticed the damage
+
+  // ── Quote ──
+  quoteRangeLow  Decimal?    @db.Decimal(10, 2)
+  quoteRangeHigh Decimal?    @db.Decimal(10, 2)
+  quoteBreakdown Json?       // Full QuoteResult JSON for reference
+  quotePdf       String?     // Storage URL for generated PDF
+  usedFallback   Boolean     @default(false) // True if fallback pricing was used
+
+  // ── Disclaimer tracking (Grok refinement) ──
+  disclaimerAcknowledged    Boolean   @default(false)
+  disclaimerAcknowledgedAt  DateTime?
+  disclaimerMethod          DisclaimerMethod?
+
+  // ── Booking ──
+  appointmentTime DateTime?
+  googleEventId   String?
+
+  // ── Dispatch ──
+  dispatchedAt   DateTime?
+  dispatchedTo   String[]    // Array of TeamMember IDs
+
+  // ── Relations ──
+  photos Photo[]
+  job    Job?
+
+  // ── Metadata ──
+  isTestCall Boolean  @default(false) // Dashboard "simulate call" feature
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([companyId, createdAt])
+  @@index([callerPhone])
+  @@index([companyId, status])
+}
+
+enum Channel {
+  PHONE
+  SMS
+  WEB_FORM
+}
+
+enum Direction {
+  INBOUND
+  OUTBOUND
+}
+
+enum CallStatus {
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  VOICEMAIL
+  FAILED
+  DROPPED
+  TRANSFERRED // Caller requested human agent
+}
+
+enum EmergencyType {
+  WATER_DAMAGE
+  FIRE_SMOKE
+  MOLD
+  STORM
+  SEWAGE
+  OTHER
+}
+
+enum PropertyType {
+  RESIDENTIAL
+  COMMERCIAL
+}
+
+enum DisclaimerMethod {
+  VERBAL   // Spoken during call
+  SMS      // Sent via text
+  BOTH     // Verbal + SMS confirmation
+}
+
+// ═══════════════════════════════════════════════════════════
+// Photo analysis
+// ═══════════════════════════════════════════════════════════
+
+model Photo {
+  id            String   @id @default(cuid())
+  callId        String
+  call          CallLog  @relation(fields: [callId], references: [id], onDelete: Cascade)
+  storageUrl    String
+  thumbnailUrl  String?
+  originalName  String?
+  mimeType      String?
+  fileSize      Int?     // bytes
+  severityScore Int?     // 1–10 from GPT-4o Vision
+  severityNotes String?  // LLM explanation of scoring
+  analysisJson  Json?    // Full structured analysis: {damageType, extent, materials, recommendations}
+  createdAt     DateTime @default(now())
+
+  @@index([callId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// Pricing
+// ═══════════════════════════════════════════════════════════
+
+model PricingMatrix {
+  id          String   @id @default(cuid())
+  companyId   String   @unique
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  version     Int      @default(1)
+  data        Json     // Strictly typed as PricingMatrixData — see src/types/pricing.ts
+  rawFileUrl  String?  // Original uploaded CSV/Excel
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ═══════════════════════════════════════════════════════════
+// Jobs (converted leads)
+// ═══════════════════════════════════════════════════════════
+
+model Job {
+  id             String    @id @default(cuid())
+  companyId      String
+  callId         String    @unique
+  call           CallLog   @relation(fields: [callId], references: [id], onDelete: Cascade)
+  status         JobStatus @default(LEAD)
+  estimatedValue Decimal?  @db.Decimal(10, 2)
+  actualValue    Decimal?  @db.Decimal(10, 2)
+  notes          String?
+  scheduledDate  DateTime?
+  completedDate  DateTime?
+  assignedTo     String?   // TeamMember ID
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+}
+
+enum JobStatus {
+  LEAD
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  LOST
+  CANCELED
+}
+
+// ═══════════════════════════════════════════════════════════
+// Team & dispatch
+// ═══════════════════════════════════════════════════════════
+
+model TeamMember {
+  id           String   @id @default(cuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name         String
+  phone        String
+  email        String?
+  role         String?  // "Water Tech", "Project Manager", "Estimator"
+  specialties  String[] // ["water", "fire", "mold"] — for smart dispatch routing
+  isOnCall     Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  // On-call schedule
+  onCallDays   Int[]    // 0=Sun, 1=Mon, ..., 6=Sat
+  onCallStart  String?  // "08:00" (24h format)
+  onCallEnd    String?  // "20:00" (24h format)
+  // Priority for dispatch (lower = dispatched first)
+  dispatchPriority Int  @default(10)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([companyId, isOnCall])
+  @@index([companyId, isActive])
+}
+
+// ═══════════════════════════════════════════════════════════
+// SMS templates
+// ═══════════════════════════════════════════════════════════
+
+model SmsTemplate {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  trigger      SmsTrigger
+  delayMinutes Int        @default(0)
+  body         String     // Supports {{companyName}}, {{callerName}}, {{appointmentTime}}, {{techName}}, {{quoteRange}}
+  bodyEs       String?    // Spanish variant
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([companyId, trigger])
+}
+
+enum SmsTrigger {
+  POST_CALL_IMMEDIATE  // "Thanks for calling, here's your quote..."
+  QUOTE_DISCLAIMER     // Quote disclaimer acknowledgment request
+  INSURANCE_TIPS       // 30min after: "Filing insurance? Here's what to do..."
+  PRE_APPOINTMENT      // 1hr before: "Our tech John is on the way..."
+  POST_SERVICE_REVIEW  // 24hr after: "How did we do? Leave a review..."
+}
+
+// ═══════════════════════════════════════════════════════════
+// Knowledge base (RAG source for AI agent)
+// ═══════════════════════════════════════════════════════════
+
+model KnowledgeEntry {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title     String
+  content   String   @db.Text
+  category  String?  // "insurance_faq", "services", "company_info", "safety"
+  language  String   @default("en")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([companyId, category])
+}
+
+// ═══════════════════════════════════════════════════════════
+// Audit log
+// ═══════════════════════════════════════════════════════════
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String   // "company.updated", "pricing.uploaded", "call.dispatched"
+  target    String?  // Entity type + ID: "call:clxxx", "teamMember:clxxx"
+  metadata  Json?    // Additional context
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([userId])
+}
