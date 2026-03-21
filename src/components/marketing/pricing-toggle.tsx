@@ -157,7 +157,7 @@ export function PricingSection() {
                 )}
 
                 <Link
-                  href="/auth/sign-up"
+                  href="/sign-up"
                   className={`mt-4 block w-full rounded-lg py-2.5 text-center text-sm font-semibold transition-colors ${
                     plan.popular
                       ? "bg-blue-600 text-white hover:bg-blue-700"

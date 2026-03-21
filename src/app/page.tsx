@@ -28,8 +28,8 @@ export default async function Home() {
             <a href="#faq" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">FAQ</a>
           </div>
           <div className="flex items-center gap-3">
-            <Link href="/auth/sign-in" className="text-sm font-medium text-gray-600 hover:text-gray-900">Sign in</Link>
-            <Link href="/auth/sign-up" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">Get started risk-free</Link>
+            <Link href="/sign-in" className="text-sm font-medium text-gray-600 hover:text-gray-900">Sign in</Link>
+            <Link href="/sign-up" className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors">Get started risk-free</Link>
           </div>
         </div>
       </nav>
@@ -57,7 +57,7 @@ export default async function Home() {
             </p>
 
             <div className="mt-8 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-              <Link href="/auth/sign-up" className="flex items-center gap-2 rounded-xl bg-blue-600 px-8 py-3.5 text-lg font-semibold text-white shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-all hover:shadow-xl">
+              <Link href="/sign-up" className="flex items-center gap-2 rounded-xl bg-blue-600 px-8 py-3.5 text-lg font-semibold text-white shadow-lg shadow-blue-600/25 hover:bg-blue-700 transition-all hover:shadow-xl">
                 Get started risk-free <ArrowRight className="h-5 w-5" />
               </Link>
               <a href="#how-it-works" className="flex items-center gap-2 rounded-xl border border-gray-300 px-8 py-3.5 text-lg font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
@@ -231,7 +231,7 @@ export default async function Home() {
           <h2 className="text-3xl font-bold text-white">Stop losing jobs to missed calls</h2>
           <p className="mt-3 text-lg text-blue-100">14-day money-back guarantee. If it doesn't capture a job, full refund.</p>
           <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link href="/auth/sign-up" className="flex items-center gap-2 rounded-xl bg-white px-8 py-3.5 text-lg font-semibold text-blue-700 hover:bg-blue-50 transition-colors">
+            <Link href="/sign-up" className="flex items-center gap-2 rounded-xl bg-white px-8 py-3.5 text-lg font-semibold text-blue-700 hover:bg-blue-50 transition-colors">
               Get started risk-free <ArrowRight className="h-5 w-5" />
             </Link>
           </div>
